@@ -31,7 +31,7 @@ The extension relies on three behaviors of Hunk 0.25.0 and the host filesystem.
 - The storage directory is `${XDG_STATE_HOME:-$HOME/.local/state}/hunk-notes` when `XDG_STATE_HOME` is absolute, or `$HOME/.local/state/hunk-notes` otherwise.
 - A review file is one JSON document named `<YYYY-MM-DDTHH-mm-ss.SSS>-<pid>.json` in local time inside the storage directory.
 - The entry point (`index.js`) connects Hunk's `startup`, `changeset_loaded`, `note_changed`, and `shutdown` events to the recorder and registers the `notes` CLI command.
-- The recorder (`createRecorder` in `notes.js`) tracks the startup working directory, debounces change events over 250 ms, serializes saves so one write runs at a time, tracks dirty state across failures, and rotates to a new review file if `changeset_loaded` introduces a different `sessionId`.
+- The recorder (`createRecorder` in `notes.js`) tracks the startup working directory, debounces change events over 250 ms, serializes saves so one write runs at a time, tracks dirty state across failures, and rotates to a new review file with `command` set to `null` when `changeset_loaded` introduces a new `sessionId`, `repo`, `title`, or `review` descriptor.
 - The storage helper (`writeReview` in `notes.js`) creates the storage directory with mode `0700`, writes JSON to a unique exclusive `.tmp` sibling file with mode `0600`, and renames it into place.
 - The CLI handler (`notesCommand` in `notes.js`) reads saved `.json` review files, sorts them newest first by `startedAt`, and prints either the best matching review, the `--all` summary array, or usage help.
 
@@ -68,14 +68,16 @@ Suppose a user opens `hunk diff abc def` in `/tmp/work/repo`, where `/tmp` is a 
 
 ### Storage Format and CLI
 
-Each review file uses UTF-8 JSON with seven top-level fields.
+Each review file uses UTF-8 JSON with seven core top-level fields and two optional metadata fields from Hunk's session list.
 
 | Field | Value |
 | --- | --- |
 | `version` | integer `1` |
-| `repo` | real path of `session.repoRoot`, or startup `cwd` when `repoRoot` is absent |
-| `cwd` | startup working directory string received from Hunk |
-| `command` | `process.argv.slice(2)` |
+| `repo` | real path of `session.repoRoot`, or `cwd` when `repoRoot` is absent |
+| `cwd` | startup working directory string received from Hunk, or `session.cwd` after a reload |
+| `command` | `process.argv.slice(2)` for the initial review, or `null` after rotating to a new diff or session |
+| `title` | optional session title string from Hunk when present |
+| `review` | optional review metadata object (`kind`, `base`, `head`, `commits`) from Hunk when present |
 | `startedAt`, `updatedAt` | UTC ISO-8601 timestamps |
 | `comments` | `comments` array from `hunk session comment list <sessionId> --type all --json` |
 
@@ -91,7 +93,7 @@ The `hunk notes` command accepts four input shapes.
 - Missed registration deadline (tests Guarantee 4). When `findSession` exceeds 13 polls or three seconds, it throws; the recorder issues one warning, exits the background loop, and keeps dirty state for shutdown. Guarantee 3 fails in this case because Assumption 2 did not hold.
 - Transient daemon, subprocess timeout, or disk write failure (tests Guarantees 3 and 4). Any failure inside `save` aborts subprocesses at five seconds, shows one warning, and stops background retries while keeping the dirty flag set so `shutdown` tries once more on exit.
 - Pre-existing or interrupted temporary files (tests Guarantee 2). Exclusive `wx` creation with a unique process-and-UUID suffix skips stale `.tmp` files, `chmod 0600` enforces private permissions, and `.tmp` cleanup removes failed writes while `readReviews` reads `.json` filenames only.
-- Embedded reviews in `hunk status` or `hunk log` (tests Guarantee 4). Clearing the cached session on `changeset_loaded` lets a second review in the same process detect its new `sessionId`, rotate to a new review file and timestamp, and reset the warning flag.
+- Embedded reviews and `hunk session reload` diff switches (tests Guarantee 4). Clearing the cached session on `changeset_loaded` lets a second review or a reloaded diff in the same process detect its new `sessionId`, `repo`, `title`, or `review`, rotate to a new review file and timestamp, set `command` to `null`, record `title` and `review` metadata from Hunk, and reset the warning flag.
 - Corrupt JSON or missing environment variables (tests Guarantees 2 and 4). An unreadable storage directory, a corrupt `.json` file, a missing `HOME` with relative `XDG_STATE_HOME`, or a nonexistent `[path]` target exits `1` on CLI reads with a message naming the error or offending file. Missing `HOME` during a review triggers one warning on the first save attempt.
 
 ## Limits

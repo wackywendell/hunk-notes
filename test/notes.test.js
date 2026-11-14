@@ -105,16 +105,24 @@ test("falls back to cwd realpath when session repoRoot is undefined", async t =>
   assert.deepEqual(r.warnings, []);
 });
 
-test("resetSession keeps file on same sessionId reload and rotates on new sessionId", async t => {
+test("resetSession keeps file on same-diff reload and rotates on new diff or sessionId", async t => {
   const f = await fixture(t);
+  const other = path.join(f.root, "other");
+  await fs.mkdir(other);
+  const realOther = await fs.realpath(other);
   let activeSession = "s1";
+  let activeRepo = f.repo;
+  let activeCwd = f.repo;
+  let activeTitle = "repo abc..def";
+  let activeReview = { kind: "comparison", base: "abc", head: "def" };
   let currentTime = started;
   const r = recording({
     ...f,
+    command: ["diff", "abc", "def"],
     now: () => currentTime,
     run: async args => args[1] === "list"
-      ? { sessions: [{ sessionId: activeSession, pid: 123, repoRoot: f.repo }] }
-      : { comments: [{ ...comments[0], body: activeSession }] },
+      ? { sessions: [{ sessionId: activeSession, pid: 123, repoRoot: activeRepo, cwd: activeCwd, title: activeTitle, review: activeReview }] }
+      : { comments: [{ ...comments[0], body: activeTitle }] },
   });
   r.recorder.changed(r.ctx);
   await r.recorder.shutdown();
@@ -123,17 +131,39 @@ test("resetSession keeps file on same sessionId reload and rotates on new sessio
   currentTime = updated;
   r.recorder.changed(r.ctx);
   await r.recorder.shutdown();
-  assert.equal((await readReviews(f.directory)).length, 1);
+  let reviews = await readReviews(f.directory);
+  assert.equal(reviews.length, 1);
+  assert.deepEqual(reviews[0].review.command, ["diff", "abc", "def"]);
+  assert.equal(reviews[0].review.title, "repo abc..def");
+  assert.deepEqual(reviews[0].review.review, { kind: "comparison", base: "abc", head: "def" });
 
-  activeSession = "s2";
+  activeTitle = "repo ghi..jkl";
+  activeReview = { kind: "comparison", base: "ghi", head: "jkl" };
+  activeRepo = realOther;
+  activeCwd = realOther;
   currentTime = new Date("2026-02-03T04:08:00.000Z");
   r.recorder.resetSession();
   r.recorder.changed(r.ctx);
   await r.recorder.shutdown();
-  const reviews = await readReviews(f.directory);
-  assert.equal(reviews.length, 2);
-  assert.equal(reviews[0].review.comments[0].body, "s2");
-  assert.equal(reviews[1].review.comments[0].body, "s1");
+
+  activeSession = "s2";
+  activeTitle = "repo mno";
+  activeReview = { kind: "commit", revision: "mno" };
+  currentTime = new Date("2026-02-03T04:09:00.000Z");
+  r.recorder.resetSession();
+  r.recorder.changed(r.ctx);
+  await r.recorder.shutdown();
+
+  reviews = await readReviews(f.directory);
+  assert.equal(reviews.length, 3);
+  assert.equal(reviews[0].review.title, "repo mno");
+  assert.equal(reviews[0].review.command, null);
+  assert.equal(reviews[1].review.title, "repo ghi..jkl");
+  assert.equal(reviews[1].review.repo, realOther);
+  assert.equal(reviews[1].review.cwd, realOther);
+  assert.equal(reviews[1].review.command, null);
+  assert.equal(reviews[2].review.title, "repo abc..def");
+  assert.deepEqual(reviews[2].review.command, ["diff", "abc", "def"]);
 });
 
 test("no notes creates no state directory", async t => {

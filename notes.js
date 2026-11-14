@@ -68,6 +68,15 @@ export async function findSession(
   throw new Error("Hunk session was not registered within 3 seconds");
 }
 
+function diffIdentity(session, repo) {
+  return JSON.stringify({
+    sessionId: session.sessionId,
+    repo,
+    title: session.title ?? null,
+    review: session.review ?? null,
+  });
+}
+
 export function createRecorder({
   directory,
   run = runHunk,
@@ -80,7 +89,8 @@ export function createRecorder({
 } = {}) {
   let cwd;
   let session;
-  let activeSessionId;
+  let activeIdentity;
+  let currentCommand = command;
   let currentStarted = started;
   let file = reviewFilename(currentStarted, pid);
   let timer;
@@ -92,26 +102,32 @@ export function createRecorder({
 
   async function save() {
     const found = session ?? await findSession(run, pid, pause);
-    if (activeSessionId !== undefined && found.sessionId !== activeSessionId) {
+    const effectiveCwd = (activeIdentity !== undefined ? found.cwd : undefined) ?? cwd ?? found.cwd ?? context?.cwd ?? process.cwd();
+    const repo = await fs.realpath(found.repoRoot ?? effectiveCwd);
+    const identity = diffIdentity(found, repo);
+    const rotated = activeIdentity !== undefined && identity !== activeIdentity;
+    if (rotated) {
       currentStarted = now();
       file = reviewFilename(currentStarted, pid);
+      currentCommand = null;
       warned = false;
     }
-    activeSessionId = found.sessionId;
+    activeIdentity = identity;
     session = found;
-    const effectiveCwd = cwd ?? session.cwd ?? context?.cwd ?? process.cwd();
-    const repo = await fs.realpath(session.repoRoot ?? effectiveCwd);
     const { comments } = await run(["session", "comment", "list", session.sessionId, "--type", "all", "--json"]);
     const targetDirectory = directory ?? stateDirectory();
-    await writeReview(targetDirectory, file, {
+    const payload = {
       version: 1,
       repo,
       cwd: effectiveCwd,
-      command,
+      command: currentCommand,
+      ...(session.title !== undefined ? { title: session.title } : {}),
+      ...(session.review !== undefined ? { review: session.review } : {}),
       startedAt: currentStarted.toISOString(),
       updatedAt: now().toISOString(),
       comments,
-    });
+    };
+    await writeReview(targetDirectory, file, payload);
   }
 
   async function flush() {

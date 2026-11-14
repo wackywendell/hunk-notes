@@ -48,7 +48,7 @@ Reviews that receive no comments write no file, while removing the last comment 
 }
 ```
 
-`repo` is the resolved real path of the Hunk daemon session's repository root, or the startup `cwd` when a review has no repository root (such as `hunk gh` or `hunk patch`). `command` contains the Hunk arguments after the binary, times inside the file use UTC, and `comments` holds the array returned by `hunk session comment list <sessionId> --type all --json`.
+`repo` is the resolved real path of the Hunk daemon session's repository root, or `cwd` when a review has no repository root (such as `hunk gh` or `hunk patch`). `command` contains the Hunk arguments after the binary for the initial review, or `null` when `hunk session reload` or an embedded `hunk status` or `hunk log` review switches to another diff in the same window. When Hunk provides them, the file also includes `title` and `review` metadata from the live session, times inside the file use UTC, and `comments` holds the array returned by `hunk session comment list <sessionId> --type all --json`.
 
 ## Limits
 
