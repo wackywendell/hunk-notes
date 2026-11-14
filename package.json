@@ -5,6 +5,19 @@
   "type": "module",
   "license": "MIT",
   "author": "Wendell Smith",
+  "repository": "https://github.com/wackywendell/hunk-notes",
+  "keywords": [
+    "hunk-extension"
+  ],
+  "files": [
+    "index.js",
+    "notes.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "test": "node --test"
   },
