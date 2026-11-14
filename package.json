@@ -1,0 +1,17 @@
+{
+  "name": "hunk-notes",
+  "version": "0.1.0",
+  "description": "Save Hunk review comments as they change.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Wendell Smith",
+  "scripts": {
+    "test": "node --test"
+  },
+  "hunk": {
+    "extensions": [
+      "./index.js"
+    ],
+    "apiVersion": 33
+  }
+}
